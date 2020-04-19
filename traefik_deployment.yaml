@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nginx-web-ns
+  labels:
+    k8s-app: nginx-web-app
+    name: nginx-web-ap
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+#   Create a role - just like you would in AWS and assign it policies
+  name: nginx-web-cr
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - endpoints
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+---
+#   Assign the role above to a user/group/service
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: nginx-web-crb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nginx-web-cr
+subjects:
+- kind: ServiceAccount
+  name: nginx-web-sa
+  namespace: nginx-web-ns
+---
+#   Create the account that is used abpve in the assignment of the role
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-web-sa
+  namespace: nginx-web-ns
+---
+
+---
+kind: Deployment
+apiVersion: extensions/v1beta1
+metadata:
+  name: nginx-web-depl
+  namespace: nginx-web-ns
+  labels:
+    k8s-app: nginx-web-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: nginx-web-app
+  template:
+    metadata:
+      labels:
+        k8s-app: nginx-web-app
+        name: nginx-web-app
+    spec:
+      serviceAccountName: nginx-web-sa
+      terminationGracePeriodSeconds: 60
+      containers:
+      - image: traefik:latest
+        name: nginx-web-app-container
+        ports:
+#   Open container ports - also need to open Service LB ports the same.
+        - name: http
+          containerPort: 80
+        - name: admin
+          containerPort: 8080
+        args:
+  #
+        - --api
+        - --api.dashboard=true
+        - --api.insecure
+  #     - --kubernetesi
+  #     - --logLevel=INFO
+  #     - --providers.kubernetesingress
+---
+
+#---
+#   Dont think this is needed
+#apiVersion: v1
+#kind: Service
+#metadata:
+#  name: traefik-web-ui
+#  namespace: nginx-web-ns
+#spec:
+#  selector:
+#    k8s-app: nginx-web-app
+#  ports:
+#  - port: 8080
+#    targetPort: 8080
+#---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: nginx-web-ingress 
+  namespace: nginx-web-ns
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: test.leejonchapman.com 
+    http:
+      paths:
+      - backend:
+          serviceName: nginx-web-80-service
+          servicePort: 8080
+---
+#apiVersion: extensions/v1beta1
+#kind: Ingress
+#metadata:
+#  name: nginx-web-ingress
+#  namespace: nginx-web-ns
+#  annotations:
+#    kubernetes.io/ingress.class: traefik
+#    traefik.frontend.rule.type: PathPrefixStrip
+#spec:
+#  rules:
+#  - http:
+#      paths:
+#      - path: /
+#        backend:
+#          serviceName: test-lee
+#          servicePort: 8080
+#     - path: /lalala/reloadportal
+#       backend:
+#         serviceName: lalalal-webshop-portal
+#         servicePort: reloader
+kind: Service
+apiVersion: v1
+metadata:
+  name: nginx-web-80-service
+  namespace: nginx-web-ns
+spec:
+  selector:
+    k8s-app: nginx-web-app
+  ports:
+#   Open service ports so they match the open container ports.
+    - protocol: TCP
+      port: 80
+      name: web
+    - protocol: TCP
+      port: 8080
+      name: admin
+  type: LoadBalancer
